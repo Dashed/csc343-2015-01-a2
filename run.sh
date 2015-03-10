@@ -1,24 +1,28 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-wget -q http://www.cdf.toronto.edu/~csc343h/winter/assignments/a2/imdb.ddl -O imdb.ddl || exit 2
-patch imdb.ddl < imdb.ddl.patch
 
-PASSED_RUN_SEQUENCE="$@"
+PASSED_RUN_SEQUENCE=("$@")
 RUN_SEQUENCE="${PASSED_RUN_SEQUENCE:-1 2 3 4 5 6 7}"
 
-echo "Run sequence: "$RUN_SEQUENCE
+echo "Run sequence: $RUN_SEQUENCE"
 
 for qnum in $RUN_SEQUENCE; do
   echo "Running Q$qnum"
 
-  for fixture in $(ls q$qnum/*.sql); do
-    fixture_basename=`basename $fixture '.sql'`
-    cat imdb.ddl $fixture | PGOPTIONS='--client-min-messages=warning' psql -q csc343h-$USER
+    if [ ! -f answers/"q$qnum.sql" ]
+    then
+        echo "Can't find file: answers/q$qnum.sql"
+        continue
+    fi
 
-    tmpfile=`mktemp --tmpdir=/tmp q$qnum-t$fixture_basename.XXX`
-    errfile=`mktemp --tmpdir=/tmp q$qnum-t$fixture_basename-errors.XXX`
+  for fixture in q"$qnum"/*.sql; do
+    fixture_basename=$(basename $fixture '.sql')
+    cat imdb.ddl $fixture | PGOPTIONS='--client-min-messages=warning' psql --quiet csc343h-$USER
 
-    PGOPTIONS='--client-min-messages=warning' psql --set ON_ERROR_STOP=1 -f q$qnum.sql csc343h-$USER > $tmpfile 2> $errfile
+    tmpfile="reports/$qnum-t$fixture_basename"
+    errfile="reports/q$qnum-t$fixture_basename-errors"
+
+    PGOPTIONS='--client-min-messages=warning' psql --set ON_ERROR_STOP=1 -f answers/q$qnum.sql csc343h-$USER > $tmpfile 2> $errfile
 
     exit_code=$?
 
@@ -32,27 +36,30 @@ for qnum in $RUN_SEQUENCE; do
     fi
 
     # Borrowed directly from the autotester code
-    sed -i '/^SET/d' $tmpfile
-    sed -i '/^DROP VIEW/d' $tmpfile
-    sed -i '/^CREATE VIEW/d' $tmpfile
+    sed -i "" '/^SET/d' "$tmpfile"
+    sed -i "" '/^DROP VIEW/d' "./$tmpfile"
+    sed -i "" '/^CREATE VIEW/d' "./$tmpfile"
+
 
     was_tested=0
 
-    if [ -f q$qnum/`basename $fixture '.sql'`.ans ]; then
-      echo ""
-      cat $fixture
-      echo ""
-      cat q$qnum/`basename $fixture '.sql'`.ans
-      echo ""
+    if [ -f q$qnum/$(basename $fixture '.sql').ans ]; then
 
-      if [ -n "`diff -q q$qnum/$fixture_basename.ans $tmpfile`" ]; then
+        # echo ""
+        # cat $fixture
+        # echo ""
+        # cat q$qnum/$(basename $fixture '.sql').ans
+        # echo ""
+
+      if [ -n "$(diff -q q$qnum/$fixture_basename.ans $tmpfile)" ]; then
+
         echo "$(tput setaf 1)FAIL Q$qnum: $fixture$(tput sgr0)"
         echo "Expected:"
         cat q$qnum/$fixture_basename.ans
         echo "but got:"
         cat $tmpfile
         echo "Output is available in $tmpfile"
-        echo "You may want to run diff -q q$qnum/$fixture_basename.ans $tmpfile to see the difference." 
+        echo "You may want to run diff -q q$qnum/$fixture_basename.ans $tmpfile to see the difference."
         echo ""
       else
         echo "$(tput setaf 2)PASS Q$qnum: $fixture$(tput sgr0)"
